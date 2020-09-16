@@ -5,7 +5,7 @@ fc_device_stats.py - Parse a Stealthwatch (SW) Flow Collector (FC) device stats.
 Make sure passwordless ssh works on the remote FC.
 
 This has been tested on python3.7.5, highly recomend running from a virtual
-environment:
+environment.
 """
 
 import argparse
@@ -40,28 +40,6 @@ def parse_args():
         "config",
         help="YAML Config file see config.yaml for example",
     )
-
-    # parser.add_argument(
-    #     "-ip",
-    #     "--flow_collector_ip",
-    #     type=str,
-    #     default="None",
-    #     help="IP Address of the Flow Collector to collect Bi-Flow from",
-    # )
-    # parser.add_argument(
-    #     "-u",
-    #     "--flow_collector_username",
-    #     type=str,
-    #     default="None",
-    #     help="Username of the Flow Collector to collect Bi-Flow from",
-    # )
-    # parser.add_argument(
-    #     "-p",
-    #     "--flow_collector_password",
-    #     type=str,
-    #     default="None",
-    #     help="Password of the Flow Collector to collect Bi-Flow from",
-    # )
     parser.add_argument(
         "-r",
         "--retry",
@@ -162,9 +140,8 @@ class Devicestats:
         self.flow_collector_ip = "None"
         self.username = "None"
         self.password = "None"
-        self.fc_pandas_data = ""
-        self.fc_pandas_data_prev = ""
-        self.global_data = ""
+        self.total_fc_data_1_cycle = ""
+        self.total_fc_data_1_cycle_prev = ""
         self.from_fc = "/lancope/var/sw/today/data/exporter_device_stats.txt"
         self.to_user = "exporter_device_stats.text"
         self.to_user_nt = "exporter_device_stats.txt"
@@ -182,28 +159,30 @@ class Devicestats:
 
         if self.verbose:
             for _, obj in self.config.items():
-                for fc_data in obj:
-                    print(fc_data)
+                for flow_collector in obj:
+                    print(flow_collector)
 
     def data_runner(self):
         """Runner that repeatedly retrieves FC data and processes it."""
         while True:
             for _, obj in self.config.items():
-                for fc_data in obj:
+                for flow_collector in obj:
                     print("Getting data set...")
-                    self.get_fc_data(fc_data["fc_ip"], fc_data["fc_username"], fc_data["fc_password"])
-                    self.process_file()
+                    self.get_fc_file(
+                        flow_collector["fc_ip"],
+                        flow_collector["fc_username"],
+                        flow_collector["fc_password"],
+                    )
+                    self.cln_fc_file()
             self.process_data()
-            del self.global_data
             time.sleep(self.retry)  # Wait ten minutes
 
-    def get_fc_data(self, fc_ip, fc_username, fc_password):
+    def get_fc_file(self, fc_ip, fc_username, fc_password):
         """
-        Connect to the Flow Connector and query the database.
-
-        Compress the data and SCP the outcome locally to be processed
+        Connect to the Flow Connector scp the file:
+        '/lancope/var/sw/today/data/exporter_device_stats.txt' to /tmp.
         """
-        print(f"...Local:  SSH connect to Flow Collector({fc_ip}, {fc_username}, {fc_password})")
+        print(f"SSH connect to Flow Collector: {fc_ip}")
         ssh = SSHClient()
         ssh.load_system_host_keys()
         ssh.connect(
@@ -215,25 +194,27 @@ class Devicestats:
         )
 
         # SCP file back home
-        print(f"...Remote: SCP output {self.from_fc} to {self.to_user}")
+        print(f"Remote: SCP output {self.from_fc} to {self.to_user}")
         scp = SCPClient(ssh.get_transport(), progress4=progress4)
         scp.get(self.from_fc, self.to_user)
         scp.close()
 
-    def process_file(self):
-        """Use Python Pandas to create a dataset.
+    def cln_fc_file(self):
+        """Clean up the file so its ready to be added to a python pandas.
 
-        Grab data and add to a global series.
+        Add the data to a working pandas series.
         """
-
         if not path.exists(self.to_user):
             print(f"Could not find {self.to_user}")
             sys.exit(1)
         else:
-            print(f"Successfully found {self.to_user}\n")
+            if self.verbose:
+                print(f"Successfully found {self.to_user}\n")
 
         # This text file is nasty
         # It has spaces between header titles and tabs between columns
+        print(f"Cleaning: {self.to_user} to {self.to_user_nt}")
+
         input_file = open(self.to_user, "r")
         export_file = open(self.to_user_nt, "w")
         for line in input_file:
@@ -242,45 +223,60 @@ class Devicestats:
         input_file.close()
         export_file.close()
 
-        # At this point it's just processing data
-        self.fc_pandas_data = pd.read_csv(self.to_user_nt, sep=" ")
-
-        # Columns we are interested in
-        self.fc_pandas_data = self.fc_pandas_data[["Exporter_Address", "Current_NetFlow_bps"]]
-
-        # Add new column with a status up or down based on the BPS on the FC
-        self.fc_pandas_data["Status"] = (self.fc_pandas_data.Current_NetFlow_bps > 0).map(
-            {True: "Up", False: "Down"}
-        )
+        # Add this FC data to total
+        print(f"Adding {self.to_user_nt} to FC data...")
+        fc_data = pd.read_csv(self.to_user_nt, sep=" ")
 
         # Add to global (per cycle database)
         if self.first_time:
-            self.global_data = self.fc_pandas_data
+            self.total_fc_data_1_cycle = fc_data
             self.first_time = False
         else:
-            self.global_data = self.global_data.append(self.fc_pandas_data, ignore_index=True)
+            self.total_fc_data_1_cycle = self.total_fc_data_1_cycle.append(
+                fc_data, ignore_index=True
+            )
 
-        print(self.global_data)
+        if self.verbose:
+            print(f"Total data: {self.total_fc_data_1_cycle}")
 
     def process_data(self):
-        """Compare data sets."""
-        # If no previous data then just return
+        """Compare data sets.
+
+        At this point we have all the FC's data and this method should be
+        called once per cycle.
+        """
+        print("Gathered and cleaned all FCs data, lets process it...")
+
+        # Columns we are interested in
+        self.total_fc_data_1_cycle = self.total_fc_data_1_cycle[
+            ["Exporter_Address", "Current_NetFlow_bps"]
+        ]
+
+        # Add new column with a status up or down based on the BPS on the FC
+        print("Adding Status based on Current Netflow BPS...")
+        self.total_fc_data_1_cycle["Status"] = (
+            self.total_fc_data_1_cycle.Current_NetFlow_bps > 0
+        ).map({True: "Up", False: "Down"})
+
+        # If no previous data then just return and wait for next loop
         if self.first_time:
             print("First time - no previous data")
-            self.fc_pandas_data_prev = self.fc_pandas_data
+            self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
+            print(f"New previous data saved:\n{self.total_fc_data_1_cycle_prev}")
             return
 
-        # Compare with fc_pandas_data_prev
-        # fc_pandas_data_comp = self.global_data
-        self.global_data["Status_Prev"] = self.fc_pandas_data_prev["Status"]
-        self.global_data["Status_Change"] = (
-            self.fc_pandas_data.Status != self.fc_pandas_data.Status_Prev
+        # Save latest data to previous
+        self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
+        print(f"New previous data saved:\n{self.total_fc_data_1_cycle_prev}")
+
+        # Compare latest and previous data and point out any changes
+        comp_fc_data_1_cycle = self.total_fc_data_1_cycle
+        comp_fc_data_1_cycle["Status_Prev"] = self.total_fc_data_1_cycle_prev["Status"]
+        comp_fc_data_1_cycle["Status_Change"] = (
+            comp_fc_data_1_cycle.Status != self.total_fc_data_1_cycle_prev.Status_Prev
         ).map({True: "Changed", False: "No Change"})
 
-        # Save latest data to previous
-        self.fc_pandas_data_prev = self.global_data
-
-        print(self.global_data)
+        print(f"Comparison between current and previous data:\n{comp_fc_data_1_cycle}")
 
 
 def main():
