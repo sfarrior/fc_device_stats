@@ -9,20 +9,15 @@ environment.
 """
 
 import argparse
-import datetime
-import os
-import re
-import socket
-import subprocess
 import sys
 import time
 from argparse import RawDescriptionHelpFormatter
 from os import path
 
 import pandas as pd
+import yaml
 from paramiko import SSHClient
 from scp import SCPClient
-import yaml
 
 
 class AbortScriptException(Exception):
@@ -228,7 +223,7 @@ class Devicestats:
         fc_data = pd.read_csv(self.to_user_nt, sep=" ")
 
         if not self.first_time:
-            pd.merge(self.total_fc_data_1_cycle, fc_data, on='Exporter_Address', how='outer')
+            pd.merge(self.total_fc_data_1_cycle, fc_data, on="Exporter_Address", how="outer")
         else:
             self.total_fc_data_1_cycle = fc_data
 
