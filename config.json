@@ -1,0 +1,14 @@
+{
+    "fcs":[
+        {
+            "fc_ip":"ip",
+            "fc_username":"user",
+            "fc_password":"pass"
+        },
+        {
+            "fc_ip":"ip",
+            "fc_username":"user",
+            "fc_password":"pass"
+        }
+    ]
+}

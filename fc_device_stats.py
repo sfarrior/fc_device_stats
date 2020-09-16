@@ -22,6 +22,7 @@ from os import path
 import pandas as pd
 from paramiko import SSHClient
 from scp import SCPClient
+import yaml
 
 
 class AbortScriptException(Exception):
@@ -32,35 +33,35 @@ def parse_args():
     """Parse sys.argv and return args."""
     parser = argparse.ArgumentParser(
         formatter_class=RawDescriptionHelpFormatter,
-        description="This tool takes an input file, which is populated with\n"
-        "a Vertica FC database query.\n\n"
-        "Flow Collector credentials can be added by cli or\n"
-        "populated by a ~/parse_biflow.yaml, in the format:\n\n"
-        "ip: 10.208.108.101\nusername: root\npassword <mypassword>",
-        epilog="E.g.: ./parse_biflow.py 10 -ip 10.90.67.28 -ci 10.90.67.25 -si 216.239.35.12 -st "
-        '"2019-11-01 21:41" -lt "2019-11-01 23:41" -fi 68',
+        description="Retrieve device statistics from a set of Flow Connectors",
+        epilog="E.g.: ./fc_device_stats.py config.yaml",
     )
     parser.add_argument(
-        "-ip",
-        "--flow_collector_ip",
-        type=str,
-        default="None",
-        help="IP Address of the Flow Collector to collect Bi-Flow from",
+        "config",
+        help="YAML Config file see config.yaml for example",
     )
-    parser.add_argument(
-        "-u",
-        "--flow_collector_username",
-        type=str,
-        default="None",
-        help="Username of the Flow Collector to collect Bi-Flow from",
-    )
-    parser.add_argument(
-        "-p",
-        "--flow_collector_password",
-        type=str,
-        default="None",
-        help="Password of the Flow Collector to collect Bi-Flow from",
-    )
+
+    # parser.add_argument(
+    #     "-ip",
+    #     "--flow_collector_ip",
+    #     type=str,
+    #     default="None",
+    #     help="IP Address of the Flow Collector to collect Bi-Flow from",
+    # )
+    # parser.add_argument(
+    #     "-u",
+    #     "--flow_collector_username",
+    #     type=str,
+    #     default="None",
+    #     help="Username of the Flow Collector to collect Bi-Flow from",
+    # )
+    # parser.add_argument(
+    #     "-p",
+    #     "--flow_collector_password",
+    #     type=str,
+    #     default="None",
+    #     help="Password of the Flow Collector to collect Bi-Flow from",
+    # )
     parser.add_argument(
         "-r",
         "--retry",
@@ -163,41 +164,52 @@ class Devicestats:
         self.password = "None"
         self.fc_pandas_data = ""
         self.fc_pandas_data_prev = ""
+        self.global_data = ""
         self.from_fc = "/lancope/var/sw/today/data/exporter_device_stats.txt"
         self.to_user = "exporter_device_stats.text"
         self.to_user_nt = "exporter_device_stats.txt"
         self.to_user_csv = "exporter_device_stats.csv"
-        self.flow_collector_ip = args.flow_collector_ip
-        self.username = args.flow_collector_username
-        self.password = args.flow_collector_password
         self.retry = args.retry
         self.first_time = True
+        self.config = args.config
 
-        # If neither base config nor CLI has credentials then exit
-        if self.flow_collector_ip == "None" or self.username == "None" or self.password == "None":
-            print_banner("Error: must supply Flow Collector IP, Username and Password, using CLI")
-            sys.exit()
+        # Get the config
+        with open(self.config, "r") as stream:
+            try:
+                self.config = yaml.safe_load(stream)
+            except yaml.YAMLError as exc:
+                print(exc)
+
+        if self.verbose:
+            for _, obj in self.config.items():
+                for fc_data in obj:
+                    print(fc_data)
 
     def data_runner(self):
         """Runner that repeatedly retrieves FC data and processes it."""
         while True:
-            self.get_fc_data()
-            self.process_file()
+            for _, obj in self.config.items():
+                for fc_data in obj:
+                    print("Getting data set...")
+                    self.get_fc_data(fc_data["fc_ip"], fc_data["fc_username"], fc_data["fc_password"])
+                    self.process_file()
+            self.process_data()
+            del self.global_data
             time.sleep(self.retry)  # Wait ten minutes
 
-    def get_fc_data(self):
+    def get_fc_data(self, fc_ip, fc_username, fc_password):
         """
         Connect to the Flow Connector and query the database.
 
         Compress the data and SCP the outcome locally to be processed
         """
-        print("...Local:  SSH connect to Flow Collector({})".format(self.flow_collector_ip))
+        print(f"...Local:  SSH connect to Flow Collector({fc_ip}, {fc_username}, {fc_password})")
         ssh = SSHClient()
         ssh.load_system_host_keys()
         ssh.connect(
-            self.flow_collector_ip,
-            username=self.username,
-            password=self.password,
+            fc_ip,
+            username=fc_username,
+            password=fc_password,
             look_for_keys=False,
             allow_agent=False,
         )
@@ -209,7 +221,10 @@ class Devicestats:
         scp.close()
 
     def process_file(self):
-        """Use Python Pandas to create a dataset."""
+        """Use Python Pandas to create a dataset.
+
+        Grab data and add to a global series.
+        """
 
         if not path.exists(self.to_user):
             print(f"Could not find {self.to_user}")
@@ -238,31 +253,40 @@ class Devicestats:
             {True: "Up", False: "Down"}
         )
 
-        print(self.fc_pandas_data)
+        # Add to global (per cycle database)
+        if self.first_time:
+            self.global_data = self.fc_pandas_data
+            self.first_time = False
+        else:
+            self.global_data = self.global_data.append(self.fc_pandas_data, ignore_index=True)
 
+        print(self.global_data)
+
+    def process_data(self):
+        """Compare data sets."""
         # If no previous data then just return
         if self.first_time:
             print("First time - no previous data")
-            self.first_time = False
             self.fc_pandas_data_prev = self.fc_pandas_data
             return
 
         # Compare with fc_pandas_data_prev
-        fc_pandas_data_comp = self.fc_pandas_data
-        fc_pandas_data_comp["Status_Prev"] = self.fc_pandas_data_prev["Status"]
-        fc_pandas_data_comp["Status_Change"] = (
+        # fc_pandas_data_comp = self.global_data
+        self.global_data["Status_Prev"] = self.fc_pandas_data_prev["Status"]
+        self.global_data["Status_Change"] = (
             self.fc_pandas_data.Status != self.fc_pandas_data.Status_Prev
         ).map({True: "Changed", False: "No Change"})
 
         # Save latest data to previous
-        self.fc_pandas_data_prev = self.fc_pandas_data
+        self.fc_pandas_data_prev = self.global_data
 
-        print(fc_pandas_data_comp)
+        print(self.global_data)
 
 
 def main():
     """Call everything."""
     args = parse_args()
+    print(args)
 
     try:
         parse = Devicestats(args)
