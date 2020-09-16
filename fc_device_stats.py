@@ -227,14 +227,10 @@ class Devicestats:
         print(f"Adding {self.to_user_nt} to FC data...")
         fc_data = pd.read_csv(self.to_user_nt, sep=" ")
 
-        # Add to global (per cycle database)
-        if self.first_time:
-            self.total_fc_data_1_cycle = fc_data
-            self.first_time = False
+        if not self.first_time:
+            pd.merge(self.total_fc_data_1_cycle, fc_data, on='Exporter_Address', how='outer')
         else:
-            self.total_fc_data_1_cycle = self.total_fc_data_1_cycle.append(
-                fc_data, ignore_index=True
-            )
+            self.total_fc_data_1_cycle = fc_data
 
         if self.verbose:
             print(f"Total data: {self.total_fc_data_1_cycle}")
@@ -263,6 +259,7 @@ class Devicestats:
             print("First time - no previous data")
             self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
             print(f"New previous data saved:\n{self.total_fc_data_1_cycle_prev}")
+            self.first_time = False
             return
 
         # Save latest data to previous
@@ -276,7 +273,7 @@ class Devicestats:
             comp_fc_data_1_cycle.Status != self.total_fc_data_1_cycle_prev.Status_Prev
         ).map({True: "Changed", False: "No Change"})
 
-        print(f"Comparison between current and previous data:\n{comp_fc_data_1_cycle}")
+        print(f"\nComparison between current and previous data:\n{comp_fc_data_1_cycle}")
 
 
 def main():
