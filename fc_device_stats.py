@@ -18,6 +18,7 @@ import pandas as pd
 import yaml
 from paramiko import SSHClient
 from scp import SCPClient
+import numpy
 
 
 class AbortScriptException(Exception):
@@ -50,36 +51,6 @@ def parse_args():
     )
 
     return parser.parse_args()
-
-
-def run_shell(cli, quiet=False):
-    """
-    Run a shell command and return the output.
-
-    Print the output and errors if debug is enabled
-    Not using logger.debug as a bit noisy for this info
-    """
-    if not quiet:
-        print("...%s" % str(cli))
-
-    process = subprocess.Popen(cli, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-    out, err = process.communicate()
-
-    out = out.rstrip()
-    err = err.rstrip()
-
-    if str(out) != "0" and str(out) != "1" and out:
-        print("  Shell STDOUT output:")
-        print()
-        print(out)
-        print()
-    if err:
-        print("  Shell STDERR output:")
-        print()
-        print(err)
-        print()
-
-    return out
 
 
 def print_banner(description):
@@ -223,7 +194,12 @@ class Devicestats:
         fc_data = pd.read_csv(self.to_user_nt, sep=" ")
 
         if not self.first_time:
-            pd.merge(self.total_fc_data_1_cycle, fc_data, on="Exporter_Address", how="outer")
+            # basic merge but not aggregating data
+            # pd.merge(self.total_fc_data_1_cycle, fc_data, on="Exporter_Address", how="outer")
+            self.total_fc_data_1_cycle.merge(fc_data, on="Exporter_Address", how="outer").groupby(
+                ["Exporter_Address"], as_index=False
+            ).agg(numpy.sum)
+
         else:
             self.total_fc_data_1_cycle = fc_data
 
@@ -258,8 +234,9 @@ class Devicestats:
             return
 
         # Save latest data to previous
+        print(f"Previous data:\n{self.total_fc_data_1_cycle_prev}")
+        print(f"Latest data:\n{self.total_fc_data_1_cycle}")
         self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
-        print(f"New previous data saved:\n{self.total_fc_data_1_cycle_prev}")
 
         # Compare latest and previous data and point out any changes
         comp_fc_data_1_cycle = self.total_fc_data_1_cycle
