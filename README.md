@@ -8,7 +8,7 @@ access.
 Basic operations::
 
     1. Connect to the Flow Collector
-    2. Submit a VSQL query in CSV format
+    2. Pull down device stats file
     3. Close the connection and create a Pandas dataframe from the CVS file
     4. Parse the data and present to the user.
 
@@ -60,3 +60,11 @@ source fc_device_stats/bin/activate
 cd ~/fc_device_stats
 pip3 install -r requirements.txt
 ```
+
+## Todo
+
+Debug and check data
+Send syslog - create alert method (log/email etc)
+Add yaml syslog target receiver
+dockerize....
+Advanced reporting on down time. Persistent.

@@ -199,7 +199,6 @@ class Devicestats:
             self.total_fc_data_1_cycle.merge(fc_data, on="Exporter_Address", how="outer").groupby(
                 ["Exporter_Address"], as_index=False
             ).agg(numpy.sum)
-
         else:
             self.total_fc_data_1_cycle = fc_data
 
