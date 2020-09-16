@@ -143,8 +143,8 @@ class Devicestats:
         self.total_fc_data_1_cycle = ""
         self.total_fc_data_1_cycle_prev = ""
         self.from_fc = "/lancope/var/sw/today/data/exporter_device_stats.txt"
-        self.to_user = "exporter_device_stats.text"
-        self.to_user_nt = "exporter_device_stats.txt"
+        self.to_user = "/tmp/exporter_device_stats.text"
+        self.to_user_nt = "/tmp/exporter_device_stats.txt"
         self.to_user_csv = "exporter_device_stats.csv"
         self.retry = args.retry
         self.first_time = True
@@ -256,7 +256,7 @@ class Devicestats:
 
         # If no previous data then just return and wait for next loop
         if self.first_time:
-            print("First time - no previous data")
+            print("First time - nothing to compare")
             self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
             print(f"New previous data saved:\n{self.total_fc_data_1_cycle_prev}")
             self.first_time = False
