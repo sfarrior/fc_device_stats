@@ -259,13 +259,11 @@ class Devicestats:
     def persist_data(self, comp_data):
         """Persist some data beyond the code execution.
 
-        Create the file if it does not exist.
+        If a row has Status=Changed, log it to a file.
         """
         for _, row in comp_data.iterrows():
-            if row["Status_Change"] == "No Change":  # change this
-                with open(self.to_user_csv, "a+") as my_file:
-                    my_file.write("\n")
-                row.T.to_csv(self.to_user_csv, mode="a", index=False)
+            if row["Status_Change"] == "Changed":
+                row.to_csv(self.to_user_csv, mode="a")
 
 
 def main():
