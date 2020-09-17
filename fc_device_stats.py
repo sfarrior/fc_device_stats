@@ -111,7 +111,7 @@ class Devicestats:
         self.from_fc = "/lancope/var/sw/today/data/exporter_device_stats.txt"
         self.to_user = "/tmp/exporter_device_stats.text"
         self.to_user_nt = "/tmp/exporter_device_stats.txt"
-        self.to_user_csv = "exporter_device_stats.csv"
+        self.to_user_csv = "persistent_device_stats.csv"
         self.retry = args.retry
         self.first_time = True
         self.config = args.config
@@ -232,9 +232,11 @@ class Devicestats:
             self.first_time = False
             return
 
-        # Save latest data to previous
+        # Display old and current data
         print(f"Previous data:\n{self.total_fc_data_1_cycle_prev}")
         print(f"Latest data:\n{self.total_fc_data_1_cycle}")
+
+        # Save latest data to new previous
         self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
 
         # Compare latest and previous data and point out any changes
@@ -244,7 +246,26 @@ class Devicestats:
             comp_fc_data_1_cycle.Status != self.total_fc_data_1_cycle_prev.Status_Prev
         ).map({True: "Changed", False: "No Change"})
 
+        # Add a datestamp for changed data
+        comp_fc_data_1_cycle["Date_Changed"] = (comp_fc_data_1_cycle.Status == "Changed").map(
+            {True: pd.to_datetime("today"), False: "No Date"}
+        )
+
         print(f"\nComparison between current and previous data:\n{comp_fc_data_1_cycle}")
+
+        # Where an interface status has changed, save to persistent file
+        self.persist_data(comp_fc_data_1_cycle)
+
+    def persist_data(self, comp_data):
+        """Persist some data beyond the code execution.
+
+        Create the file if it does not exist.
+        """
+        for _, row in comp_data.iterrows():
+            if row["Status_Change"] == "No Change":  # change this
+                with open(self.to_user_csv, "a+") as my_file:
+                    my_file.write("\n")
+                row.T.to_csv(self.to_user_csv, mode="a", index=False)
 
 
 def main():
