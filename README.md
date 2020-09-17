@@ -61,6 +61,18 @@ cd ~/fc_device_stats
 pip3 install -r requirements.txt
 ```
 
+## Docker
+
+### Build the docker image
+
+Install docker in your environment
+
+docker build -t rwellum/fc_device_stats .
+
+### Run the docker image
+
+docker run --net="host" rwellum/fc_device_stats
+
 ## Todo
 
 Todo's from furst customer demo:
