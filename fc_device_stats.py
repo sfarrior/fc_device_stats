@@ -263,7 +263,8 @@ class Devicestats:
         """
         for _, row in comp_data.iterrows():
             if row["Status_Change"] == "Changed":
-                row.to_csv(self.to_user_csv, mode="a")
+                with open(self.to_user_csv, mode='a+') as my_file:
+                    my_file.write(f"{row.to_frame().T}\n")
 
 
 def main():

@@ -65,9 +65,10 @@ pip3 install -r requirements.txt
 
 Todo's from furst customer demo:
 
+requirements.txt - done
+Persistent reporting on down time
+
 Debug and check data
 Send syslog - create alert method (log/email etc)
 Add yaml syslog target receiver
 dockerize....
-Advanced reporting on down time. Persistent.
-requirements.txt - done

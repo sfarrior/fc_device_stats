@@ -128,6 +128,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Local
 settings.json
 config_working.yaml
 persistent_device_stats.csv
