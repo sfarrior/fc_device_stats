@@ -18,7 +18,6 @@ import pandas as pd
 import yaml
 from paramiko import SSHClient
 from scp import SCPClient
-import numpy
 
 
 class AbortScriptException(Exception):
@@ -136,25 +135,32 @@ class Devicestats:
         """Runner that repeatedly retrieves FC data and processes it."""
         while True:
             for index, obj in self.config.items():
-                print(f"DEBUG: {index}/{obj}")
                 if index == "Admin":
                     continue
                 for flow_collector in obj:
-                    print("Getting data set...")
+                    # print("Getting data set...")
                     self.get_fc_file(
                         flow_collector["fc_ip"],
                         flow_collector["fc_username"],
                         flow_collector["fc_password"],
                     )
-                    self.cln_fc_file()
+                    self.clean_fc_file()
+                    self.combine_fc_data()
+
+            # Process all the data collected from FC's
+            if self.verbose:
+                print(f"Combined Data:\n{self.total_fc_data_1_cycle}")
             self.process_data()
-            time.sleep(self.retry)  # Wait retry_interval
+
+            # Wait retry_interval
+            time.sleep(self.retry)
 
     def get_fc_file(self, fc_ip, fc_username, fc_password):
         """
         Connect to the Flow Connector scp the file:
         '/lancope/var/sw/today/data/exporter_device_stats.txt' to /tmp.
         """
+
         print(f"SSH connect to Flow Collector: {fc_ip}")
         ssh = SSHClient()
         ssh.load_system_host_keys()
@@ -172,10 +178,10 @@ class Devicestats:
         scp.get(self.from_fc, self.to_user)
         scp.close()
 
-    def cln_fc_file(self):
+    def clean_fc_file(self):
         """Clean up the file so its ready to be added to a python pandas.
 
-        Add the data to a working pandas series.
+        Write cleaned up data to: self.to_user_nt
         """
         if not path.exists(self.to_user):
             print(f"Could not find {self.to_user}")
@@ -186,7 +192,7 @@ class Devicestats:
 
         # This text file is nasty
         # It has spaces between header titles and tabs between columns
-        print(f"Cleaning: {self.to_user} to {self.to_user_nt}")
+        print(f"Cleaning: {self.to_user} and saving to: {self.to_user_nt}")
 
         input_file = open(self.to_user, "r")
         export_file = open(self.to_user_nt, "w")
@@ -196,21 +202,28 @@ class Devicestats:
         input_file.close()
         export_file.close()
 
+    def combine_fc_data(self):
+        """Combine Flow Collector data from one cycle into a pandas Series."""
+
         # Add this FC data to total
         print(f"Adding {self.to_user_nt} to FC data...")
         fc_data = pd.read_csv(self.to_user_nt, sep=" ")
 
-        if not self.first_time:
-            # basic merge but not aggregating data
-            # pd.merge(self.total_fc_data_1_cycle, fc_data, on="Exporter_Address", how="outer")
-            self.total_fc_data_1_cycle.merge(fc_data, on="Exporter_Address", how="outer").groupby(
-                ["Exporter_Address"], as_index=False
-            ).agg(numpy.sum)
-        else:
-            self.total_fc_data_1_cycle = fc_data
+        # Columns we are interested in
+        fc_data = fc_data[["Exporter_Address", "Current_NetFlow_bps"]]
 
         if self.verbose:
-            print(f"Total data: {self.total_fc_data_1_cycle}")
+            print(f"New Flow Collector Data:\n{fc_data}")
+
+        if self.first_time:
+            self.total_fc_data_1_cycle = fc_data
+            self.first_time = False
+        else:
+            self.total_fc_data_1_cycle = (
+                pd.concat([self.total_fc_data_1_cycle, fc_data])
+                .groupby(["Exporter_Address"], as_index=False)["Current_NetFlow_bps"]
+                .sum()
+            )
 
     def process_data(self):
         """Compare data sets.
@@ -220,28 +233,22 @@ class Devicestats:
         """
         print("Gathered and cleaned all FCs data, lets process it...")
 
-        # Columns we are interested in
-        self.total_fc_data_1_cycle = self.total_fc_data_1_cycle[
-            ["Exporter_Address", "Current_NetFlow_bps"]
-        ]
-
         # Add new column with a status up or down based on the BPS on the FC
         print("Adding Status based on Current Netflow BPS...")
         self.total_fc_data_1_cycle["Status"] = (
             self.total_fc_data_1_cycle.Current_NetFlow_bps > 0
         ).map({True: "Up", False: "Down"})
 
-        # If no previous data then just return and wait for next loop
-        if self.first_time:
-            print("First time - nothing to compare")
-            self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
-            print(f"New previous data saved:\n{self.total_fc_data_1_cycle_prev}")
-            self.first_time = False
-            return
-
         # Display old and current data
-        print(f"Previous data:\n{self.total_fc_data_1_cycle_prev}")
-        print(f"Latest data:\n{self.total_fc_data_1_cycle}")
+        if isinstance(self.total_fc_data_1_cycle_prev, str):
+            if self.verbose:
+                print("No previous data yet")
+        else:
+            if self.verbose:
+                print(f"Previous data:\n{self.total_fc_data_1_cycle_prev}")
+
+        if self.verbose:
+            print(f"Latest data:\n{self.total_fc_data_1_cycle}")
 
         # Save latest data to new previous
         self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle

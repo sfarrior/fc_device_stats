@@ -72,12 +72,16 @@ Note: edit config_working.yaml first
 
 ## Todo
 
-Todo's from furst customer demo:
+Todo's from first customer demo:
+
+### Done
 
 requirements.txt - done
-Persistent reporting on down time
-dockerize - done
+Persistent reporting on down time - done
+dockerize - done (pushed to dockerhub, tested)
+Debug and check data - done
 
-Debug and check data
+### Not Done
+
 Send syslog - create alert method (log/email etc)
 Add yaml syslog target receiver
