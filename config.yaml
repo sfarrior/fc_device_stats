@@ -1,4 +1,6 @@
 ---
+Admin:
+- retry_interval: 600
 # List of Flow Collectors
 fcs:
 - fc_ip: ip
@@ -7,5 +9,3 @@ fcs:
 - fc_ip: ip
   fc_username: user
   fc_password: pass
-Admin:
-- retry_interval: 600

@@ -127,25 +127,28 @@ class Devicestats:
                 for flow_collector in obj:
                     print(flow_collector)
 
-        # Pull in the retry from config - override
+        # Pull in the retry from config
         for obj in self.config["Admin"]:
             self.retry = obj["retry_interval"]
+        print(f"Retry Interval: {self.retry}")
 
     def data_runner(self):
         """Runner that repeatedly retrieves FC data and processes it."""
         while True:
-            for _, obj in self.config.items():
-                if obj != "Admin":
-                    for flow_collector in obj:
-                        print("Getting data set...")
-                        self.get_fc_file(
-                            flow_collector["fc_ip"],
-                            flow_collector["fc_username"],
-                            flow_collector["fc_password"],
-                        )
-                        self.cln_fc_file()
-                self.process_data()
-                time.sleep(self.retry)  # Wait retry_interval
+            for index, obj in self.config.items():
+                print(f"DEBUG: {index}/{obj}")
+                if index == "Admin":
+                    continue
+                for flow_collector in obj:
+                    print("Getting data set...")
+                    self.get_fc_file(
+                        flow_collector["fc_ip"],
+                        flow_collector["fc_username"],
+                        flow_collector["fc_password"],
+                    )
+                    self.cln_fc_file()
+            self.process_data()
+            time.sleep(self.retry)  # Wait retry_interval
 
     def get_fc_file(self, fc_ip, fc_username, fc_password):
         """
