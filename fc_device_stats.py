@@ -36,13 +36,13 @@ def parse_args():
         "config",
         help="YAML Config file see config.yaml for example",
     )
-    parser.add_argument(
-        "-r",
-        "--retry",
-        type=int,
-        default=600,
-        help="Retry - default 10m (600s)",
-    )
+    # parser.add_argument(
+    #     "-r",
+    #     "--retry",
+    #     type=int,
+    #     default=600,
+    #     help="Retry - default 10m (600s)",
+    # )
     parser.add_argument(
         "-v",
         "--verbose",
@@ -112,7 +112,6 @@ class Devicestats:
         self.to_user = "/tmp/exporter_device_stats.text"
         self.to_user_nt = "/tmp/exporter_device_stats.txt"
         self.to_user_csv = "persistent_device_stats.csv"
-        self.retry = args.retry
         self.first_time = True
         self.config = args.config
 
@@ -128,20 +127,25 @@ class Devicestats:
                 for flow_collector in obj:
                     print(flow_collector)
 
+        # Pull in the retry from config - override
+        for obj in self.config["Admin"]:
+            self.retry = obj["retry_interval"]
+
     def data_runner(self):
         """Runner that repeatedly retrieves FC data and processes it."""
         while True:
             for _, obj in self.config.items():
-                for flow_collector in obj:
-                    print("Getting data set...")
-                    self.get_fc_file(
-                        flow_collector["fc_ip"],
-                        flow_collector["fc_username"],
-                        flow_collector["fc_password"],
-                    )
-                    self.cln_fc_file()
-            self.process_data()
-            time.sleep(self.retry)  # Wait ten minutes
+                if obj != "Admin":
+                    for flow_collector in obj:
+                        print("Getting data set...")
+                        self.get_fc_file(
+                            flow_collector["fc_ip"],
+                            flow_collector["fc_username"],
+                            flow_collector["fc_password"],
+                        )
+                        self.cln_fc_file()
+                self.process_data()
+                time.sleep(self.retry)  # Wait retry_interval
 
     def get_fc_file(self, fc_ip, fc_username, fc_password):
         """
@@ -263,7 +267,7 @@ class Devicestats:
         """
         for _, row in comp_data.iterrows():
             if row["Status_Change"] == "Changed":
-                with open(self.to_user_csv, mode='a+') as my_file:
+                with open(self.to_user_csv, mode="a+") as my_file:
                     my_file.write(f"{row.to_frame().T}\n")
 
 

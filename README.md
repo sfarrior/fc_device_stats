@@ -16,7 +16,7 @@ See ./parse_biflow.py -h for full argument list
 
 ## Requirements
 
-Every 10 minutes, 7x24, my four FCs send data from /lancope/var/sw/today/data/exporter_device_stats.txt  to pandas running on a separate redhat unix server.
+Every 10 minutes, 7x24, my four FCs send data from /lancope/var/sw/today/data/exporter_device_stats.txt to pandas running on a separate redhat unix server.
 If just one field must be chosen as the most important one, it’s the 44th field “Current NetFlow bps”
 I don’t know what pandas ingestion will look like
 From pandas, there is automation that asks questions via a script that runs on a regular interval and does stuff (like send syslog, send email, populates a web page) according to the result.
@@ -32,34 +32,24 @@ What is the cumulative down time for all our exporter+interfaces in the last mon
 
 ### Upgrade pip3
 
-```bash
-python3 -m pip install --upgrade pip
-```
+    python3 -m pip install --upgrade pip
 
 ### Install Virtual Env
 
-```bash
-pip3 install virtualenv
-```
+    pip3 install virtualenv
 
 ### Create a python3 virtual environment
 
-```bash
-virtualenv -p python3 fc_device_stats
-```
+    virtualenv -p python3 fc_device_stats
 
 ### Activate virtual env
 
-```bash
-source fc_device_stats/bin/activate
-```
+    source fc_device_stats/bin/activate
 
 ### Install requirements
 
-```bash
-cd ~/fc_device_stats
-pip3 install -r requirements.txt
-```
+    cd ~/fc_device_stats
+    pip3 install -r requirements.txt
 
 ## Docker
 
@@ -71,7 +61,14 @@ docker build -t rwellum/fc_device_stats .
 
 ### Run the docker image
 
-docker run --net="host" rwellum/fc_device_stats
+Note: edit config_working.yaml first
+
+    docker run \
+    -it --rm \
+    --volume ${SSH_AUTH_SOCK}:/ssh-agent --env SSH_AUTH_SOCK=/ssh-agent \
+    --volume ${HOME}/.ssh/:/root/.ssh \
+    --volume `pwd`/config_working.yaml:/app/config.yaml \
+    rwellum/fc_device_stats
 
 ## Todo
 
@@ -79,8 +76,8 @@ Todo's from furst customer demo:
 
 requirements.txt - done
 Persistent reporting on down time
+dockerize - done
 
 Debug and check data
 Send syslog - create alert method (log/email etc)
 Add yaml syslog target receiver
-dockerize....
