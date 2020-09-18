@@ -77,11 +77,15 @@ Todo's from first customer demo:
 ### Done
 
 requirements.txt - done
+
 Persistent reporting on down time - done
+
 dockerize - done (pushed to dockerhub, tested)
+
 Debug and check data - done
 
 ### Not Done
 
 Send syslog - create alert method (log/email etc)
+
 Add yaml syslog target receiver
