@@ -35,13 +35,6 @@ def parse_args():
         "config",
         help="YAML Config file see config.yaml for example",
     )
-    # parser.add_argument(
-    #     "-r",
-    #     "--retry",
-    #     type=int,
-    #     default=600,
-    #     help="Retry - default 10m (600s)",
-    # )
     parser.add_argument(
         "-v",
         "--verbose",
