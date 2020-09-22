@@ -1,9 +1,8 @@
 # fc_device_stats
 
-This is a tool to pull device stats from a FC. And do something with that data.
-
-User is expected to have root access to the Flow Collectors and root SSH
-access.
+This is a tool to pull device stats from a Flow Collector (FC). And do
+something with that data in order to get early alerting on any interface status
+changes.
 
 Basic operations::
 
@@ -12,56 +11,95 @@ Basic operations::
     3. Close the connection and create a Pandas dataframe from the CVS file
     4. Parse the data and present to the user.
 
-See ./parse_biflow.py -h for full argument list
+User is expected to have root access to the Flow Collectors and root SSH
+access.
 
 ## Requirements
 
-Every 10 minutes, 7x24, my four FCs send data from /lancope/var/sw/today/data/exporter_device_stats.txt to pandas running on a separate redhat unix server.
-If just one field must be chosen as the most important one, it’s the 44th field “Current NetFlow bps”
-I don’t know what pandas ingestion will look like
-From pandas, there is automation that asks questions via a script that runs on a regular interval and does stuff (like send syslog, send email, populates a web page) according to the result.
-Define “down” as : =0 in the Current NetFlow bps field
-Define “up” as: >0 in the Current NetFlow bps field
-What exporter+interface has gone down in the last 10 minutes?
-When netflow moves from one FC to another, it’ll start reporting as zero on the old one and >0 on the new one. Ignore the zero bps reported from the old FC.
-What exporter+interface has come back up in the last 10 minutes?
-What is the cumulative down time for any given exporter+interface in the last month?
-What is the cumulative down time for all our exporter+interfaces in the last month?
+The ability to poll multiple Flow Collectors to determine if particular
+interfaces have a change in status, that might indicate something has gone
+wrong either hardware or software.
+
+Each FC updates: ```/lancope/var/sw/today/data/exporter_device_stats.txt```
+every 1 to 5 minutes, therefore on a retry interval that should be
+configurable, poll these files to see what the NetFlow BPS per interface is. As
+flows can move from one FC to another, aggregate the data and see if a
+particular interface is reporting zero bytes.
+
+Define “down” as: == 0 in the Current NetFlow bps field
+Define “up” as: > 0 in the Current NetFlow bps field
+
+Information to provide:
+
+- What exporter+interface has gone down in the last 10 minutes?
+- When netflow moves from one FC to another, it’ll start reporting as zero on
+  the old one and >0 on the new one. Ignore the zero bps reported from the old
+  FC.
+- What exporter+interface has come back up in the last 10 minutes?
+- What is the cumulative down time for any given exporter+interface in the last month?
+- What is the cumulative down time for all our exporter+interfaces in the last month?
+
+In addition:
+
+- Write the code in a way that is easily expandable for future requirements.
+- Provide the configuration in a human readible manner (like YAML for example).
+- Dockerize the application for installation ease.
+- Provide persistent logging.
+- Provide the ability to send logs to a log server.
 
 ## Install environment
 
-### Upgrade pip3
+### PIP
+
+#### Upgrade pip3
 
     python3 -m pip install --upgrade pip
 
-### Install Virtual Env
+#### Install Virtual Env
 
     pip3 install virtualenv
 
-### Create a python3 virtual environment
+#### Create a python3 virtual environment
 
     virtualenv -p python3 fc_device_stats
 
-### Activate virtual env
+#### Activate virtual env
 
     source fc_device_stats/bin/activate
 
-### Install requirements
+#### Install requirements
 
     cd ~/fc_device_stats
     pip3 install -r requirements.txt
 
-## Docker
+### Docker
 
-### Build the docker image
+#### Build the docker image
 
 Install docker in your environment
 
-docker build -t rwellum/fc_device_stats .
+    docker build -t rwellum/fc_device_stats .
 
-### Run the docker image
+**Note this step is for the tool creator.**
 
-Note: edit config_working.yaml first
+#### Push to dockerhub
+
+Note this will change to the permenant home in the future.
+
+    docker push rwellum/fc_device_stats
+
+**Note this step is for the tool creator.**
+
+#### Run the docker image
+
+Working assumption is that user has docker installed and can run a simple
+container like:
+
+    docker run hello-world
+
+**If this fails, stop and fix your docker installation.**
+
+**Note: edit config_working.yaml to add your retry interval and FC's information.**
 
     docker run \
     -it --rm \
@@ -70,22 +108,18 @@ Note: edit config_working.yaml first
     --volume `pwd`/config_working.yaml:/app/config.yaml \
     rwellum/fc_device_stats
 
-## Todo
+## Todo's
 
 Todo's from first customer demo:
 
 ### Done
 
-requirements.txt - done
-
-Persistent reporting on down time - done
-
-dockerize - done (pushed to dockerhub, tested)
-
-Debug and check data - done
+- requirements.txt - done
+- Persistent reporting on down time - done
+- dockerize - done (pushed to dockerhub, tested)
+- Debug and check data - done
 
 ### Not Done
 
-Send syslog - create alert method (log/email etc)
-
-Add yaml syslog target receiver
+- Send syslog - create alert method (log/email etc)
+- Add yaml syslog target receiver
