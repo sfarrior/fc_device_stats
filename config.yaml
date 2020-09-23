@@ -4,11 +4,9 @@ Admin:
 
 # List of Flow Collectors
 fcs:
-- ip: x.x.x.x
-  username: <username>
-  password: <password>
-  stats_file_path: /lancope/var/sw/today/data/exporter_device_stats.txt
-- ip: y.y.y.y
-  username: <username>
-  password: <password>
-  stats_file_path: /lancope/var/sw/today/data/exporter_device_stats.txt
+- fc_ip: x.x.x.x
+  fc_username: <username>
+  fc_password: <password>
+- fc_ip: y.y.y.y
+  fc_username: <username>
+  fc_password: <password>
