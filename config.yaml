@@ -1,14 +1,14 @@
 ---
 Admin:
-  retry_interval: 20
+  retry_interval: 300
 
 # List of Flow Collectors
 fcs:
-- ip: 10.208.114.101
-  username: root
-  password: lan411cope
+- ip: x.x.x.x
+  username: <username>
+  password: <password>
   stats_file_path: /lancope/var/sw/today/data/exporter_device_stats.txt
-- ip: 10.208.113.151
-  username: root
-  password: cisco123
+- ip: y.y.y.y
+  username: <username>
+  password: <password>
   stats_file_path: /lancope/var/sw/today/data/exporter_device_stats.txt
