@@ -12,7 +12,6 @@ import argparse
 import sys
 import time
 from argparse import RawDescriptionHelpFormatter
-from os import path
 
 import pandas as pd
 import yaml
@@ -137,7 +136,7 @@ class Devicestats:
 
             # Process all the data collected from FC's
             if self.verbose:
-                print(f"Combined Data:\n{self.total_fc_data_1_cycle}")
+                print(f"Combined Data:\n{self.total_fc_data_cycle_current}")
             self.process_data()
 
             # Wait retry_interval
@@ -181,12 +180,11 @@ class Devicestats:
         if self.verbose:
             print(f"New Flow Collector Data:\n{fc_data}")
 
-        if self.first_time:
-            self.total_fc_data_1_cycle = fc_data
-            self.first_time = False
+        if self.total_fc_data_cycle_prev.empty:
+            self.total_fc_data_cycle_prev = fc_data
         else:
-            self.total_fc_data_1_cycle = (
-                pd.concat([self.total_fc_data_1_cycle, fc_data])
+            self.total_fc_data_cycle_current = (
+                pd.concat([self.total_fc_data_cycle_current, fc_data])
                 .groupby(["Exporter_Address"], as_index=False)["Current_NetFlow_bps"]
                 .sum()
             )
@@ -201,29 +199,29 @@ class Devicestats:
 
         # Add new column with a status up or down based on the BPS on the FC
         print("Adding Status based on Current Netflow BPS...")
-        self.total_fc_data_1_cycle["Status"] = (
-            self.total_fc_data_1_cycle.Current_NetFlow_bps > 0
+        self.total_fc_data_cycle_current["Status"] = (
+            self.total_fc_data_cycle_current.Current_NetFlow_bps > 0
         ).map({True: "Up", False: "Down"})
 
         # Display old and current data
-        if isinstance(self.total_fc_data_1_cycle_prev, str):
+        if isinstance(self.total_fc_data_cycle_prev, str):
             if self.verbose:
                 print("No previous data yet")
         else:
             if self.verbose:
-                print(f"Previous data:\n{self.total_fc_data_1_cycle_prev}")
+                print(f"Previous data:\n{self.total_fc_data_cycle_prev}")
 
         if self.verbose:
-            print(f"Latest data:\n{self.total_fc_data_1_cycle}")
+            print(f"Latest data:\n{self.total_fc_data_cycle_current}")
 
         # Save latest data to new previous
-        self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
+        self.total_fc_data_cycle_prev = self.total_fc_data_cycle_current
 
         # Compare latest and previous data and point out any changes
-        comp_fc_data_1_cycle = self.total_fc_data_1_cycle
-        comp_fc_data_1_cycle["Status_Prev"] = self.total_fc_data_1_cycle_prev["Status"]
+        comp_fc_data_1_cycle = self.total_fc_data_cycle_current
+        comp_fc_data_1_cycle["Status_Prev"] = self.total_fc_data_cycle_prev["Status"]
         comp_fc_data_1_cycle["Status_Change"] = (
-            comp_fc_data_1_cycle.Status != self.total_fc_data_1_cycle_prev.Status_Prev
+            comp_fc_data_1_cycle.Status != self.total_fc_data_cycle_prev.Status_Prev
         ).map({True: "Changed", False: "No Change"})
 
         # Add a datestamp for changed data
