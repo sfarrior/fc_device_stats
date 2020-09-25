@@ -100,10 +100,13 @@ class Devicestats:
         self.password = "None"
         self.total_fc_data_1_cycle = ""
         self.total_fc_data_1_cycle_prev = ""
+        self.save_stats = False
+        self.save_stats_df = ""
         self.from_fc = "/lancope/var/sw/today/data/exporter_device_stats.txt"
         self.to_user = "/tmp/exporter_device_stats.text"
         self.to_user_nt = "/tmp/exporter_device_stats.txt"
         self.to_user_csv = "persistent_device_stats.csv"
+        self.save_stats_csv = "saved_combined_stats.csv"
         self.first_time = True
         self.config = args.config
 
@@ -121,8 +124,18 @@ class Devicestats:
 
         # Pull in the retry from config
         for obj in self.config["Admin"]:
-            self.retry = obj["retry_interval"]
+            print(obj)
+            try:
+                self.retry = obj["retry_interval"]
+            except KeyError:
+                pass
+            try:
+                self.save_stats = obj["save_stats"]
+            except KeyError:
+                pass
+
         print(f"Retry Interval: {self.retry}")
+        print(f"Save Stats: {self.save_stats}")
 
     def data_runner(self):
         """Runner that repeatedly retrieves FC data and processes it."""
@@ -202,6 +215,14 @@ class Devicestats:
         print(f"Adding {self.to_user_nt} to FC data...")
         fc_data = pd.read_csv(self.to_user_nt, sep=" ")
 
+        # For debugging purposes - save the full stats in CSV format
+        if self.save_stats:
+            if self.first_time:
+                self.save_stats_df = fc_data
+            else:
+                self.save_stats_df = pd.concat([self.save_stats_df, fc_data])
+            self.save_stats_df.to_csv(self.save_stats_csv)
+
         # Columns we are interested in
         fc_data = fc_data[["Exporter_Address", "Current_NetFlow_bps"]]
 
@@ -228,6 +249,7 @@ class Devicestats:
 
         # Add new column with a status up or down based on the BPS on the FC
         print("Adding Status based on Current Netflow BPS...")
+
         self.total_fc_data_1_cycle["Status"] = (
             self.total_fc_data_1_cycle.Current_NetFlow_bps > 0
         ).map({True: "Up", False: "Down"})

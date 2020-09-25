@@ -1,6 +1,7 @@
 ---
 Admin:
   retry_interval: 300
+  save_stats: False
 
 # List of Flow Collectors
 fcs:
