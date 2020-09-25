@@ -85,14 +85,10 @@ class Devicestats:
     def __init__(self, args):
         """Initialize all variables, basic time checking."""
         self.verbose = args.verbose
-        self.flow_collector_ip = "None"
-        self.username = "None"
-        self.password = "None"
         self.total_fc_data_cycle_current = pd.DataFrame()
-        self.total_fc_data_cycle_prev = pd.DataFrame
+        self.total_fc_data_cycle_prev = pd.DataFrame()
         self.fc_datafile_path = "/lancope/var/sw/today/data/exporter_device_stats.txt"
         self.to_user_csv = "persistent_device_stats.csv"
-        self.first_time = True
         self.config = args.config
 
         # Get the config
