@@ -9,6 +9,7 @@ environment.
 """
 
 import argparse
+import os
 import sys
 import time
 from argparse import RawDescriptionHelpFormatter
@@ -30,8 +31,7 @@ def parse_args():
         epilog="E.g.: ./fc_device_stats.py config.yaml",
     )
     parser.add_argument(
-        "config",
-        help="YAML Config file see config.yaml for example",
+        "config", help="YAML Config file see config.yaml for example",
     )
     parser.add_argument(
         "-v",
@@ -65,14 +65,6 @@ def print_banner(description):
     for _ in range(banner):
         print("*", end="")
     print("\n")
-
-
-def progress4(filename, size, sent, peername):
-    """Define progress callback that prints the current percentage completed for the file."""
-    sys.stdout.write(
-        "(%s:%s) %s's progress: %.2f%%   \r"
-        % (peername[0], peername[1], filename, float(sent) / float(size) * 100)
-    )
 
 
 class Devicestats:
@@ -122,17 +114,14 @@ class Devicestats:
     def data_runner(self):
         """Runner that repeatedly retrieves FC data and processes it."""
         while True:
-            for index, obj in self.config.items():
-                if index == "Admin":
-                    continue
-                for flow_collector in obj:
-                    # print("Getting data set...")
-                    new_fc_data = self.get_fc_file(
-                        flow_collector["fc_ip"],
-                        flow_collector["fc_username"],
-                        flow_collector["fc_password"],
-                    )
-                    self.combine_fc_data(new_fc_data)
+            for flow_collector in self.config["fcs"]:
+                # print("Getting data set...")
+                new_fc_data = self.get_fc_file(
+                    flow_collector["fc_ip"],
+                    flow_collector["fc_username"],
+                    flow_collector["fc_password"],
+                )
+                self.combine_fc_data(new_fc_data)
 
             # Process all the data collected from FC's
             if self.verbose:
@@ -168,11 +157,10 @@ class Devicestats:
         current_device.columns = current_device.columns.str.replace(" ", "_")
         return current_device
 
-
     def combine_fc_data(self, new_fc_data):
         """Combine Flow Collector data from one cycle into a pandas Series."""
 
-        print(f"Adding file to FC data...")
+        print("Adding file to aggregate FC data...")
 
         # Columns we are interested in
         fc_data = new_fc_data[["Exporter_Address", "Current_NetFlow_bps"]]
@@ -180,14 +168,11 @@ class Devicestats:
         if self.verbose:
             print(f"New Flow Collector Data:\n{fc_data}")
 
-        if self.total_fc_data_cycle_prev.empty:
-            self.total_fc_data_cycle_prev = fc_data
-        else:
-            self.total_fc_data_cycle_current = (
-                pd.concat([self.total_fc_data_cycle_current, fc_data])
-                .groupby(["Exporter_Address"], as_index=False)["Current_NetFlow_bps"]
-                .sum()
-            )
+        self.total_fc_data_cycle_current = (
+            pd.concat([self.total_fc_data_cycle_current, fc_data])
+            .groupby(["Exporter_Address"], as_index=False)["Current_NetFlow_bps"]
+            .sum()
+        ).sort_values("Exporter_Address")
 
     def process_data(self):
         """Compare data sets.
@@ -204,45 +189,44 @@ class Devicestats:
         ).map({True: "Up", False: "Down"})
 
         # Display old and current data
-        if isinstance(self.total_fc_data_cycle_prev, str):
-            if self.verbose:
+        if self.verbose:
+            if self.total_fc_data_cycle_prev.empty:
                 print("No previous data yet")
-        else:
-            if self.verbose:
+            else:
                 print(f"Previous data:\n{self.total_fc_data_cycle_prev}")
 
-        if self.verbose:
             print(f"Latest data:\n{self.total_fc_data_cycle_current}")
+
+        if not self.total_fc_data_cycle_prev.empty:
+            # Compare latest and previous data and point out any changes
+            comp_fc_data_1_cycle = self.total_fc_data_cycle_current
+            comp_fc_data_1_cycle["Status_Change"] = (
+                comp_fc_data_1_cycle["Status"] != self.total_fc_data_cycle_prev["Status"]
+            ).map({True: "Changed", False: "No Change"})
+
+            # Add a datestamp for changed data
+            comp_fc_data_1_cycle["Date_Changed"] = (
+                comp_fc_data_1_cycle["Status_Change"] == "Changed"
+            ).map({True: pd.to_datetime("today"), False: "N/A"})
+
+            print(f"\nComparison between current and previous data:\n{comp_fc_data_1_cycle}")
+
+            # Where an interface status has changed, save to persistent file
+            comp_fc_data_1_cycle.loc[
+                comp_fc_data_1_cycle["Status_Change"] == "Changed"
+            ].set_index("Exporter_Address").to_csv(
+                self.to_user_csv, mode="a+", header=not os.path.isfile(self.to_user_csv)
+            )
+
+        else:
+            print("Initial data:")
+            print(self.total_fc_data_cycle_current)
 
         # Save latest data to new previous
         self.total_fc_data_cycle_prev = self.total_fc_data_cycle_current
 
-        # Compare latest and previous data and point out any changes
-        comp_fc_data_1_cycle = self.total_fc_data_cycle_current
-        comp_fc_data_1_cycle["Status_Prev"] = self.total_fc_data_cycle_prev["Status"]
-        comp_fc_data_1_cycle["Status_Change"] = (
-            comp_fc_data_1_cycle.Status != self.total_fc_data_cycle_prev.Status_Prev
-        ).map({True: "Changed", False: "No Change"})
-
-        # Add a datestamp for changed data
-        comp_fc_data_1_cycle["Date_Changed"] = (comp_fc_data_1_cycle.Status == "Changed").map(
-            {True: pd.to_datetime("today"), False: "No Date"}
-        )
-
-        print(f"\nComparison between current and previous data:\n{comp_fc_data_1_cycle}")
-
-        # Where an interface status has changed, save to persistent file
-        self.persist_data(comp_fc_data_1_cycle)
-
-    def persist_data(self, comp_data):
-        """Persist some data beyond the code execution.
-
-        If a row has Status=Changed, log it to a file.
-        """
-        for _, row in comp_data.iterrows():
-            if row["Status_Change"] == "Changed":
-                with open(self.to_user_csv, mode="a+") as my_file:
-                    my_file.write(f"{row.to_frame().T}\n")
+        # Reset for next loop
+        self.total_fc_data_cycle_current = pd.DataFrame()
 
 
 def main():
