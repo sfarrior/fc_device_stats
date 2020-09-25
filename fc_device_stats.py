@@ -117,8 +117,7 @@ class Devicestats:
                     print(flow_collector)
 
         # Pull in the retry from config
-        for obj in self.config["Admin"]:
-            self.retry = obj["retry_interval"]
+        self.retry = self.config["Admin"]["retry_interval"]
         print(f"Retry Interval: {self.retry}")
 
     def data_runner(self):
