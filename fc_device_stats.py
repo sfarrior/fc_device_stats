@@ -17,7 +17,6 @@ from os import path
 import pandas as pd
 import yaml
 from paramiko import SSHClient
-from scp import SCPClient
 
 
 class AbortScriptException(Exception):
@@ -98,11 +97,9 @@ class Devicestats:
         self.flow_collector_ip = "None"
         self.username = "None"
         self.password = "None"
-        self.total_fc_data_1_cycle = ""
-        self.total_fc_data_1_cycle_prev = ""
-        self.from_fc = "/lancope/var/sw/today/data/exporter_device_stats.txt"
-        self.to_user = "/tmp/exporter_device_stats.text"
-        self.to_user_nt = "/tmp/exporter_device_stats.txt"
+        self.total_fc_data_cycle_current = pd.DataFrame()
+        self.total_fc_data_cycle_prev = pd.DataFrame
+        self.fc_datafile_path = "/lancope/var/sw/today/data/exporter_device_stats.txt"
         self.to_user_csv = "persistent_device_stats.csv"
         self.first_time = True
         self.config = args.config
@@ -132,13 +129,12 @@ class Devicestats:
                     continue
                 for flow_collector in obj:
                     # print("Getting data set...")
-                    self.get_fc_file(
+                    new_fc_data = self.get_fc_file(
                         flow_collector["fc_ip"],
                         flow_collector["fc_username"],
                         flow_collector["fc_password"],
                     )
-                    self.clean_fc_file()
-                    self.combine_fc_data()
+                    self.combine_fc_data(new_fc_data)
 
             # Process all the data collected from FC's
             if self.verbose:
@@ -165,45 +161,23 @@ class Devicestats:
             allow_agent=False,
         )
 
-        # SCP file back home
-        print(f"Remote: SCP output {self.from_fc} to {self.to_user}")
-        scp = SCPClient(ssh.get_transport(), progress4=progress4)
-        scp.get(self.from_fc, self.to_user)
-        scp.close()
+        sftp = ssh.open_sftp()
+        with sftp.open(self.fc_datafile_path) as tsv:
+            current_device = pd.read_csv(tsv, sep="\t")
 
-    def clean_fc_file(self):
-        """Clean up the file so its ready to be added to a python pandas.
+        print("File successfully retrieved and read...")
+        # Replace spaces with underscores in column names
+        current_device.columns = current_device.columns.str.replace(" ", "_")
+        return current_device
 
-        Write cleaned up data to: self.to_user_nt
-        """
-        if not path.exists(self.to_user):
-            print(f"Could not find {self.to_user}")
-            sys.exit(1)
-        else:
-            if self.verbose:
-                print(f"Successfully found {self.to_user}\n")
 
-        # This text file is nasty
-        # It has spaces between header titles and tabs between columns
-        print(f"Cleaning: {self.to_user} and saving to: {self.to_user_nt}")
-
-        input_file = open(self.to_user, "r")
-        export_file = open(self.to_user_nt, "w")
-        for line in input_file:
-            new_line = line.replace(" ", "_").replace("\t", " ")
-            export_file.write(new_line)
-        input_file.close()
-        export_file.close()
-
-    def combine_fc_data(self):
+    def combine_fc_data(self, new_fc_data):
         """Combine Flow Collector data from one cycle into a pandas Series."""
 
-        # Add this FC data to total
-        print(f"Adding {self.to_user_nt} to FC data...")
-        fc_data = pd.read_csv(self.to_user_nt, sep=" ")
+        print(f"Adding file to FC data...")
 
         # Columns we are interested in
-        fc_data = fc_data[["Exporter_Address", "Current_NetFlow_bps"]]
+        fc_data = new_fc_data[["Exporter_Address", "Current_NetFlow_bps"]]
 
         if self.verbose:
             print(f"New Flow Collector Data:\n{fc_data}")
