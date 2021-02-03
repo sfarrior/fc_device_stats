@@ -1,23 +1,21 @@
-#!/usr/local/bin/python3
 """
-fc_device_stats.py - Parse a Stealthwatch (SW) Flow Collector (FC) device stats.
+fc_device_stats.py - Parse Stealthwatch (SW) Flow Collector (FC) device stats.
 
 Make sure passwordless ssh works on the remote FC.
 
-This has been tested on python3.7.5, highly recomend running from a virtual
+This has been tested on python3.8.5, highly recommend running from a virtual
 environment.
 """
 
 import argparse
+import os
 import sys
 import time
 from argparse import RawDescriptionHelpFormatter
-from os import path
 
 import pandas as pd
 import yaml
 from paramiko import SSHClient
-from scp import SCPClient
 
 
 class AbortScriptException(Exception):
@@ -69,14 +67,6 @@ def print_banner(description):
     print("\n")
 
 
-def progress4(filename, size, sent, peername):
-    """Define progress callback that prints the current percentage completed for the file."""
-    sys.stdout.write(
-        "(%s:%s) %s's progress: %.2f%%   \r"
-        % (peername[0], peername[1], filename, float(sent) / float(size) * 100)
-    )
-
-
 class Devicestats:
     """
     Common base class for parsing a FCs device stats.
@@ -95,20 +85,13 @@ class Devicestats:
     def __init__(self, args):
         """Initialize all variables, basic time checking."""
         self.verbose = args.verbose
-        self.flow_collector_ip = "None"
-        self.username = "None"
-        self.password = "None"
-        self.total_fc_data_1_cycle = ""
-        self.total_fc_data_1_cycle_prev = ""
-        self.from_fc = "/lancope/var/sw/today/data/exporter_device_stats.txt"
-        self.to_user = "/tmp/exporter_device_stats.text"
-        self.to_user_nt = "/tmp/exporter_device_stats.txt"
+        self.total_fc_data_cycle_current = pd.DataFrame()
+        self.total_fc_data_cycle_prev = pd.DataFrame()
+        self.fc_datafile_path = "/lancope/var/sw/today/data/exporter_device_stats.txt"
         self.to_user_csv = "persistent_device_stats.csv"
-        self.first_time = True
-        self.config = args.config
 
         # Get the config
-        with open(self.config, "r") as stream:
+        with open(args.config, "r") as stream:
             try:
                 self.config = yaml.safe_load(stream)
             except yaml.YAMLError as exc:
@@ -116,33 +99,28 @@ class Devicestats:
 
         if self.verbose:
             for _, obj in self.config.items():
-                for flow_collector in obj:
-                    print(flow_collector)
+                for item in obj:
+                    print(f"Config Item: {item}")
 
         # Pull in the retry from config
-        for obj in self.config["Admin"]:
-            self.retry = obj["retry_interval"]
+        self.retry = self.config["Admin"]["retry_interval"]
         print(f"Retry Interval: {self.retry}")
 
     def data_runner(self):
         """Runner that repeatedly retrieves FC data and processes it."""
         while True:
-            for index, obj in self.config.items():
-                if index == "Admin":
-                    continue
-                for flow_collector in obj:
-                    # print("Getting data set...")
-                    self.get_fc_file(
-                        flow_collector["fc_ip"],
-                        flow_collector["fc_username"],
-                        flow_collector["fc_password"],
-                    )
-                    self.clean_fc_file()
-                    self.combine_fc_data()
+            for flow_collector in self.config["fcs"]:
+                # print("Getting data set...")
+                new_fc_data = self.get_fc_file(
+                    flow_collector["fc_ip"],
+                    flow_collector["fc_username"],
+                    flow_collector["fc_password"],
+                )
+                self.combine_fc_data(new_fc_data)
 
             # Process all the data collected from FC's
             if self.verbose:
-                print(f"Combined Data:\n{self.total_fc_data_1_cycle}")
+                print(f"Combined Data:\n{self.total_fc_data_cycle_current}")
             self.process_data()
 
             # Wait retry_interval
@@ -154,7 +132,7 @@ class Devicestats:
         '/lancope/var/sw/today/data/exporter_device_stats.txt' to /tmp.
         """
 
-        print(f"SSH connect to Flow Collector: {fc_ip}")
+        print(f"\nSSH connect to Flow Collector: {fc_ip}")
         ssh = SSHClient()
         ssh.load_system_host_keys()
         ssh.connect(
@@ -165,58 +143,35 @@ class Devicestats:
             allow_agent=False,
         )
 
-        # SCP file back home
-        print(f"Remote: SCP output {self.from_fc} to {self.to_user}")
-        scp = SCPClient(ssh.get_transport(), progress4=progress4)
-        scp.get(self.from_fc, self.to_user)
-        scp.close()
+        sftp = ssh.open_sftp()
+        with sftp.open(self.fc_datafile_path) as tsv:
+            current_device = pd.read_csv(tsv, sep="\t")
 
-    def clean_fc_file(self):
-        """Clean up the file so its ready to be added to a python pandas.
+        print("File successfully retrieved and read...")
+        # Replace spaces with underscores in column names
+        current_device.columns = current_device.columns.str.replace(" ", "_")
 
-        Write cleaned up data to: self.to_user_nt
-        """
-        if not path.exists(self.to_user):
-            print(f"Could not find {self.to_user}")
-            sys.exit(1)
-        else:
-            if self.verbose:
-                print(f"Successfully found {self.to_user}\n")
+        # Add in the FC IP, this is useful for debugging
+        current_device["FC_IP"] = fc_ip
 
-        # This text file is nasty
-        # It has spaces between header titles and tabs between columns
-        print(f"Cleaning: {self.to_user} and saving to: {self.to_user_nt}")
+        return current_device
 
-        input_file = open(self.to_user, "r")
-        export_file = open(self.to_user_nt, "w")
-        for line in input_file:
-            new_line = line.replace(" ", "_").replace("\t", " ")
-            export_file.write(new_line)
-        input_file.close()
-        export_file.close()
-
-    def combine_fc_data(self):
+    def combine_fc_data(self, new_fc_data):
         """Combine Flow Collector data from one cycle into a pandas Series."""
 
-        # Add this FC data to total
-        print(f"Adding {self.to_user_nt} to FC data...")
-        fc_data = pd.read_csv(self.to_user_nt, sep=" ")
+        print("Adding file to aggregated FC data...")
 
         # Columns we are interested in
-        fc_data = fc_data[["Exporter_Address", "Current_NetFlow_bps"]]
+        fc_data = new_fc_data[["Exporter_Address", "Current_NetFlow_bps", "FC_IP"]]
 
         if self.verbose:
             print(f"New Flow Collector Data:\n{fc_data}")
 
-        if self.first_time:
-            self.total_fc_data_1_cycle = fc_data
-            self.first_time = False
-        else:
-            self.total_fc_data_1_cycle = (
-                pd.concat([self.total_fc_data_1_cycle, fc_data])
-                .groupby(["Exporter_Address"], as_index=False)["Current_NetFlow_bps"]
-                .sum()
-            )
+        self.total_fc_data_cycle_current = (
+            pd.concat([self.total_fc_data_cycle_current, fc_data])
+            .groupby(["Exporter_Address"], as_index=False)["Current_NetFlow_bps"]
+            .sum()
+        ).sort_values("Exporter_Address")
 
     def process_data(self):
         """Compare data sets.
@@ -224,54 +179,51 @@ class Devicestats:
         At this point we have all the FC's data and this method should be
         called once per cycle.
         """
-        print("Gathered and cleaned all FCs data, lets process it...")
+        print("\nGathered and cleaned all FCs data, lets process it...")
 
         # Add new column with a status up or down based on the BPS on the FC
-        print("Adding Status based on Current Netflow BPS...")
-        self.total_fc_data_1_cycle["Status"] = (
-            self.total_fc_data_1_cycle.Current_NetFlow_bps > 0
+        print("Adding Status based on Current Netflow BPS...\n")
+        self.total_fc_data_cycle_current["Status"] = (
+            self.total_fc_data_cycle_current.Current_NetFlow_bps > 0
         ).map({True: "Up", False: "Down"})
 
         # Display old and current data
-        if isinstance(self.total_fc_data_1_cycle_prev, str):
-            if self.verbose:
-                print("No previous data yet")
-        else:
-            if self.verbose:
-                print(f"Previous data:\n{self.total_fc_data_1_cycle_prev}")
-
         if self.verbose:
-            print(f"Latest data:\n{self.total_fc_data_1_cycle}")
+            if self.total_fc_data_cycle_prev.empty:
+                print("No previous data yet")
+            else:
+                print(f"Previous data:\n{self.total_fc_data_cycle_prev}")
+
+            print(f"Latest data:\n{self.total_fc_data_cycle_current}")
+
+        if not self.total_fc_data_cycle_prev.empty:
+            # Compare latest and previous data and point out any changes
+            comp_fc_data_1_cycle = self.total_fc_data_cycle_current
+            comp_fc_data_1_cycle["Status_Change"] = (
+                comp_fc_data_1_cycle["Status"] != self.total_fc_data_cycle_prev["Status"]
+            ).map({True: "Changed", False: "No Change"})
+
+            # Add a datestamp for changed data
+            comp_fc_data_1_cycle["Date_Changed"] = (
+                comp_fc_data_1_cycle["Status_Change"] == "Changed"
+            ).map({True: pd.to_datetime("today"), False: "N/A"})
+
+            print(f"Comparison between current and previous data:\n{comp_fc_data_1_cycle}")
+
+            # Where an interface status has changed, save to persistent file
+            comp_fc_data_1_cycle.loc[comp_fc_data_1_cycle["Status_Change"] == "Changed"].set_index(
+                "Exporter_Address"
+            ).to_csv(self.to_user_csv, mode="a+", header=not os.path.isfile(self.to_user_csv))
+
+        else:
+            print("Initial data:")
+            print(self.total_fc_data_cycle_current)
 
         # Save latest data to new previous
-        self.total_fc_data_1_cycle_prev = self.total_fc_data_1_cycle
+        self.total_fc_data_cycle_prev = self.total_fc_data_cycle_current
 
-        # Compare latest and previous data and point out any changes
-        comp_fc_data_1_cycle = self.total_fc_data_1_cycle
-        comp_fc_data_1_cycle["Status_Prev"] = self.total_fc_data_1_cycle_prev["Status"]
-        comp_fc_data_1_cycle["Status_Change"] = (
-            comp_fc_data_1_cycle.Status != self.total_fc_data_1_cycle_prev.Status_Prev
-        ).map({True: "Changed", False: "No Change"})
-
-        # Add a datestamp for changed data
-        comp_fc_data_1_cycle["Date_Changed"] = (comp_fc_data_1_cycle.Status == "Changed").map(
-            {True: pd.to_datetime("today"), False: "No Date"}
-        )
-
-        print(f"\nComparison between current and previous data:\n{comp_fc_data_1_cycle}")
-
-        # Where an interface status has changed, save to persistent file
-        self.persist_data(comp_fc_data_1_cycle)
-
-    def persist_data(self, comp_data):
-        """Persist some data beyond the code execution.
-
-        If a row has Status=Changed, log it to a file.
-        """
-        for _, row in comp_data.iterrows():
-            if row["Status_Change"] == "Changed":
-                with open(self.to_user_csv, mode="a+") as my_file:
-                    my_file.write(f"{row.to_frame().T}\n")
+        # Reset for next loop
+        self.total_fc_data_cycle_current = pd.DataFrame()
 
 
 def main():

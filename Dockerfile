@@ -1,4 +1,4 @@
-FROM python:3
+FROM python:3.8
 
 ADD requirements.txt /app/
 ADD fc_device_stats.py /app/
